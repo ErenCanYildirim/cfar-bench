@@ -5,4 +5,5 @@
 //! so that a bug in the implementation cannot silently propagate into the
 //! values it is checked against.
 
+pub mod ca_cfar;
 pub mod exponential;

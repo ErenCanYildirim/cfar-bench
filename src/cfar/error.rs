@@ -10,6 +10,13 @@ pub enum CfarError {
     InvalidMultiplier(f64),
     /// A fixed threshold must be positive and finite.
     InvalidThreshold(f64),
+    /// An OS-CFAR rank must satisfy `1 ≤ rank ≤ N`.
+    InvalidRank {
+        /// The requested rank.
+        rank: usize,
+        /// Number of reference cells `N`.
+        reference_cells: usize,
+    },
 }
 
 impl fmt::Display for CfarError {
@@ -27,6 +34,13 @@ impl fmt::Display for CfarError {
             Self::InvalidThreshold(t) => {
                 write!(f, "threshold must be positive and finite, got {t}")
             }
+            Self::InvalidRank {
+                rank,
+                reference_cells,
+            } => write!(
+                f,
+                "OS-CFAR rank must be between 1 and {reference_cells}, got {rank}"
+            ),
         }
     }
 }

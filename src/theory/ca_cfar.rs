@@ -34,6 +34,21 @@
 //! ```text
 //! 1 + S_required = α(Pfa, N) / α(Pd*, N).
 //! ```
+//!
+//! # Heterogeneous background
+//!
+//! The derivation never used that the cells share a power. If the CUT is
+//! `Exp(p_c)` and reference cell `i` is `Exp(pᵢ)`, all independent, then the
+//! reference sum's MGF is the product of the individual MGFs, and
+//!
+//! ```text
+//! P(CUT > α Z / N) = ∏ᵢ (1 + α pᵢ / (N p_c))^(-1)
+//! ```
+//!
+//! This one formula covers homogeneous noise (all equal), Swerling I
+//! targets (`p_c = P(1 + S)`), Swerling I interferers in the window
+//! (`pᵢ = P(1 + INR)`) and clutter edges (a step in the `pᵢ` and/or `p_c`).
+//! See [`exceedance_probability`].
 
 /// False alarm probability of CA-CFAR with multiplier `alpha` and `n`
 /// reference cells: `(1 + α/N)^(-N)`.
@@ -70,6 +85,31 @@ pub fn pd_swerling1(alpha: f64, n: usize, snr: f64) -> f64 {
 #[must_use]
 pub fn required_snr_swerling1(alpha: f64, n: usize, pd: f64) -> f64 {
     alpha / multiplier_for_pfa(pd, n) - 1.0
+}
+
+/// Probability that the CUT exceeds the CA-CFAR threshold when every cell
+/// is independently exponential with its own mean power:
+/// `∏ᵢ (1 + α pᵢ / (N p_c))^(-1)`, with `N = reference_powers.len()`.
+///
+/// It is Pfa when the CUT holds only background and Pd when it holds a
+/// Swerling I target. Mean powers are what [`crate::sim::Scene::mean_powers`]
+/// reports, so a scene can be fed straight in.
+///
+/// # Panics
+///
+/// If `reference_powers` is empty.
+#[must_use]
+pub fn exceedance_probability(alpha: f64, cut_power: f64, reference_powers: &[f64]) -> f64 {
+    assert!(
+        !reference_powers.is_empty(),
+        "need at least one reference cell"
+    );
+    let n = reference_powers.len() as f64;
+    let log_p: f64 = reference_powers
+        .iter()
+        .map(|&p| -(alpha * p / (n * cut_power)).ln_1p())
+        .sum();
+    log_p.exp()
 }
 
 #[cfg(test)]
@@ -112,6 +152,33 @@ mod tests {
             previous = alpha;
         }
         assert!((previous - ideal) / ideal < 1e-4);
+    }
+
+    #[test]
+    fn heterogeneous_formula_reduces_to_homogeneous_cases() {
+        let (n, alpha, snr) = (16, 8.6, 12.0);
+        let flat = vec![2.5; n];
+        // All cells equal: Pfa. Scale invariance: 2.5 cancels.
+        assert!((exceedance_probability(alpha, 2.5, &flat) - pfa(alpha, n)).abs() < 1e-15);
+        // Target in the CUT: Swerling I Pd.
+        let pd = exceedance_probability(alpha, 2.5 * (1.0 + snr), &flat);
+        assert!((pd - pd_swerling1(alpha, n, snr)).abs() < 1e-15);
+    }
+
+    #[test]
+    fn interferers_mask_and_clutter_edges_spike() {
+        let (n, alpha) = (16, multiplier_for_pfa(1e-3, 16));
+        // Two 20 dB interferers in the window lower Pfa (masking).
+        let mut refs = vec![1.0; n];
+        refs[0] = 101.0;
+        refs[1] = 101.0;
+        assert!(exceedance_probability(alpha, 1.0, &refs) < 1e-3);
+        // CUT in 20 dB clutter with half the window still in noise: the
+        // threshold is set too low, and Pfa jumps.
+        let refs: Vec<f64> = (0..n)
+            .map(|i| if i < n / 2 { 1.0 } else { 100.0 })
+            .collect();
+        assert!(exceedance_probability(alpha, 100.0, &refs) > 1e-2);
     }
 
     #[test]

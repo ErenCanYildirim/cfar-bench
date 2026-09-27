@@ -1,8 +1,6 @@
 //! Cell-averaging CFAR.
 
-use std::ops::Range;
-
-use super::{CfarError, CfarWindow};
+use super::{CfarError, CfarProfile, CfarWindow};
 
 /// Cell-averaging CFAR detector.
 ///
@@ -24,43 +22,6 @@ use super::{CfarError, CfarWindow};
 pub struct CaCfar {
     window: CfarWindow,
     multiplier: f64,
-}
-
-/// Result of running a CFAR detector along a power profile.
-///
-/// # Edge policy
-///
-/// A decision is produced only for cells whose **full** window lies inside
-/// the profile: indices `half_width ..= len - 1 - half_width`. Cells closer
-/// to either end get no decision at all.
-///
-/// Alternatives were rejected deliberately:
-///
-/// - *Truncated window* (use whatever reference cells exist): changes `N`
-///   near the edges, so a fixed `α` would give a different, higher Pfa there
-///   unless `α` were re-derived per cell.
-/// - *Wrap-around* (circular indexing): treats the far end of the profile as
-///   a neighbour, which is only valid for genuinely circular data (e.g. a
-///   full FFT spectrum), not for range profiles.
-///
-/// Skipping is the only policy under which every reported decision has
-/// exactly the design Pfa.
-#[derive(Debug, Clone, PartialEq)]
-pub struct CfarProfile {
-    /// Input index of `thresholds[0]`.
-    pub first_cell: usize,
-    /// Threshold for each decided cell, aligned with `first_cell`.
-    pub thresholds: Vec<f64>,
-    /// Input indices of the cells that exceeded their threshold.
-    pub detections: Vec<usize>,
-}
-
-impl CfarProfile {
-    /// Input indices that received a decision.
-    #[must_use]
-    pub fn decided_cells(&self) -> Range<usize> {
-        self.first_cell..self.first_cell + self.thresholds.len()
-    }
 }
 
 impl CaCfar {
@@ -126,33 +87,12 @@ impl CaCfar {
     /// per cell and clearly correct, and `N ≤ 64` in practice.
     #[must_use]
     pub fn run(&self, power: &[f64]) -> CfarProfile {
-        let half = self.window.half_width();
-        let guard = self.window.guard_per_side();
-        let first_cell = half;
-
-        // `checked_sub` returns None instead of underflowing when the
-        // profile is shorter than one full window.
-        let Some(last_cell) = power.len().checked_sub(half + 1) else {
-            return CfarProfile {
-                first_cell,
-                thresholds: Vec::new(),
-                detections: Vec::new(),
-            };
-        };
-        if last_cell < first_cell {
-            return CfarProfile {
-                first_cell,
-                thresholds: Vec::new(),
-                detections: Vec::new(),
-            };
-        }
-
-        let mut thresholds = Vec::with_capacity(last_cell - first_cell + 1);
+        let cells = self.window.decided_cells(power.len());
+        let mut thresholds = Vec::with_capacity(cells.len());
         let mut detections = Vec::new();
 
-        for cut in first_cell..=last_cell {
-            let lagging = &power[cut - half..cut - guard];
-            let leading = &power[cut + guard + 1..=cut + half];
+        for cut in cells.clone() {
+            let (lagging, leading) = self.window.reference_halves(power, cut);
             let sum: f64 = lagging.iter().chain(leading).sum();
             let threshold = self.threshold_from_sum(sum);
             if power[cut] > threshold {
@@ -162,7 +102,7 @@ impl CaCfar {
         }
 
         CfarProfile {
-            first_cell,
+            first_cell: cells.start,
             thresholds,
             detections,
         }

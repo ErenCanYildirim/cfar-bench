@@ -8,3 +8,4 @@
 pub mod ca_cfar;
 pub mod exponential;
 pub mod known_noise;
+pub mod os_cfar;

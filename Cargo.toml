@@ -1,0 +1,37 @@
+[package]
+name = "cfar_bench"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "Radar signal processing primitives validated against closed-form detection theory."
+license = "MIT OR Apache-2.0"
+publish = false
+
+[dependencies]
+num-complex = "0.4.6"
+# The library only needs the `Rng` / `Distribution` traits, so it does not pull
+# in rand's default features (thread-local RNG, OS entropy, ...). The caller
+# decides which generator to use.
+rand = { version = "0.10.3", default-features = false }
+rand_distr = { version = "0.6.0", default-features = false }
+
+[dev-dependencies]
+# Tests and doc examples need a concrete, value-stable, seedable generator.
+# rand 0.10 re-exports ChaCha8Rng behind the `chacha` feature.
+rand = { version = "0.10.3", features = ["chacha"] }
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+missing_debug_implementations = "warn"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+# Pedantic lint, enabled on purpose: exact `==` on floats is almost always a
+# bug in numerical code.
+float_cmp = "warn"
+
+# Statistical tests draw ~1e6 samples; unoptimized builds make them slow.
+# Optimizing tests keeps `cargo test` fast without affecting debug builds.
+[profile.test]
+opt-level = 3

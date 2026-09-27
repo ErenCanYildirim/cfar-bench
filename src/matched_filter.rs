@@ -1,0 +1,1 @@
+//! Matched filtering / pulse compression. Implemented in PR 7.

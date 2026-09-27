@@ -8,10 +8,11 @@
 //!
 //! | Module              | Contents                                           |
 //! |---------------------|----------------------------------------------------|
-//! | [`sim`]             | Synthetic data: noise, and later targets/scenes    |
+//! | [`sim`]             | Synthetic data: noise, targets, detection trials   |
 //! | [`stats`]           | Estimators and hypothesis tests used for validation|
 //! | [`special`]         | Special functions (ln Γ, incomplete beta, normal quantile) |
-//! | [`theory`]        | Closed-form reference results (never shares logic with the code under test) |
+//! | [`units`]           | dB conversions for power quantities                |
+//! | [`theory`]          | Closed-form reference results (never shares logic with the code under test) |
 //! | [`waveform`]        | Transmit waveforms (LFM, Barker)                   |
 //! | [`matched_filter`]  | Pulse compression                                  |
 //! | [`ambiguity`]       | Delay-Doppler ambiguity function                   |
@@ -24,4 +25,5 @@ pub mod sim;
 pub mod special;
 pub mod stats;
 pub mod theory;
+pub mod units;
 pub mod waveform;

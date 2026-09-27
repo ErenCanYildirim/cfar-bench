@@ -7,12 +7,15 @@
 //! tests compare the detector against an answer key that shares no code
 //! with it.
 //!
-//! OS-CFAR is added in PR 5.
+//! [`FixedThreshold`] is the known-noise benchmark that CFAR loss is
+//! measured against. OS-CFAR is added in PR 5.
 
 mod ca;
 mod error;
+mod fixed;
 mod window;
 
 pub use ca::{CaCfar, CfarProfile};
 pub use error::CfarError;
+pub use fixed::FixedThreshold;
 pub use window::CfarWindow;

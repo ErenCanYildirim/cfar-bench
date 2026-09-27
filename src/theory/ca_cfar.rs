@@ -16,6 +16,24 @@
 //! The noise power `P` cancels: that is the "constant false alarm rate"
 //! property. As `N → ∞` the estimate becomes exact and
 //! `Pfa → exp(-α)`, the known-noise detector.
+//!
+//! # Swerling I target
+//!
+//! With a Swerling I target of SNR `S`, the CUT is target + noise, a sum of
+//! independent complex Gaussians: `CN(0, P(1 + S))`. Its power is
+//! `Exp(P(1 + S))`, and the reference cells are unchanged. Repeating the
+//! derivation with `P → P(1 + S)` in the CUT only:
+//!
+//! ```text
+//! Pd = (1 + α / (N (1 + S)))^(-N)  =  pfa(α / (1 + S), N)
+//! ```
+//!
+//! Solving `Pd(S) = Pd*` for `S` reuses the Pfa inversion:
+//! `α / (1 + S) = multiplier_for_pfa(Pd*, N)`, so
+//!
+//! ```text
+//! 1 + S_required = α(Pfa, N) / α(Pd*, N).
+//! ```
 
 /// False alarm probability of CA-CFAR with multiplier `alpha` and `n`
 /// reference cells: `(1 + α/N)^(-N)`.
@@ -37,6 +55,21 @@ pub fn pfa(alpha: f64, n: usize) -> f64 {
 pub fn multiplier_for_pfa(pfa: f64, n: usize) -> f64 {
     let n = n as f64;
     n * (-pfa.ln() / n).exp_m1()
+}
+
+/// Probability of detection of a single-pulse Swerling I target with
+/// (linear) SNR `snr`: `(1 + α/(N(1 + S)))^(-N)`.
+#[must_use]
+pub fn pd_swerling1(alpha: f64, n: usize, snr: f64) -> f64 {
+    pfa(alpha / (1.0 + snr), n)
+}
+
+/// Linear SNR at which a Swerling I target reaches detection probability
+/// `pd`, with multiplier `alpha`: `α / α(Pd, N) - 1`. The inverse of
+/// [`pd_swerling1`] in `snr`.
+#[must_use]
+pub fn required_snr_swerling1(alpha: f64, n: usize, pd: f64) -> f64 {
+    alpha / multiplier_for_pfa(pd, n) - 1.0
 }
 
 #[cfg(test)]
@@ -79,6 +112,36 @@ mod tests {
             previous = alpha;
         }
         assert!((previous - ideal) / ideal < 1e-4);
+    }
+
+    #[test]
+    fn pd_at_zero_snr_is_pfa() {
+        let alpha = multiplier_for_pfa(1e-4, 16);
+        assert!((pd_swerling1(alpha, 16, 0.0) - 1e-4).abs() < 1e-16);
+    }
+
+    #[test]
+    fn required_snr_inverts_pd() {
+        for n in [4, 16, 64] {
+            let alpha = multiplier_for_pfa(1e-6, n);
+            for target_pd in [0.1, 0.5, 0.9, 0.99] {
+                let snr = required_snr_swerling1(alpha, n, target_pd);
+                let back = pd_swerling1(alpha, n, snr);
+                assert!((back - target_pd).abs() < 1e-12, "N={n}, Pd={target_pd}");
+            }
+        }
+    }
+
+    #[test]
+    fn pd_increases_with_snr() {
+        let alpha = multiplier_for_pfa(1e-3, 16);
+        let mut last = 0.0;
+        for snr in [0.0, 1.0, 10.0, 100.0, 1e4] {
+            let pd = pd_swerling1(alpha, 16, snr);
+            assert!(pd > last);
+            last = pd;
+        }
+        assert!(last > 0.999);
     }
 
     #[test]

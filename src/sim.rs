@@ -4,5 +4,9 @@
 //! control seeding and reproducibility.
 
 mod noise;
+mod target;
+mod trial;
 
 pub use noise::{ComplexAwgn, NoiseError};
+pub use target::SwerlingOne;
+pub use trial::draw_cell_trial;

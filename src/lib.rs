@@ -10,7 +10,8 @@
 //! |---------------------|----------------------------------------------------|
 //! | [`sim`]             | Synthetic data: noise, and later targets/scenes    |
 //! | [`stats`]           | Estimators and hypothesis tests used for validation|
-//! | [`theory`]          | Closed-form reference results (never shares logic with the code under test) |
+//! | [`special`]         | Special functions (ln Γ, incomplete beta, normal quantile) |
+//! | [`theory`]        | Closed-form reference results (never shares logic with the code under test) |
 //! | [`waveform`]        | Transmit waveforms (LFM, Barker)                   |
 //! | [`matched_filter`]  | Pulse compression                                  |
 //! | [`ambiguity`]       | Delay-Doppler ambiguity function                   |
@@ -20,6 +21,7 @@ pub mod ambiguity;
 pub mod cfar;
 pub mod matched_filter;
 pub mod sim;
+pub mod special;
 pub mod stats;
 pub mod theory;
 pub mod waveform;

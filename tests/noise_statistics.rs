@@ -5,11 +5,15 @@
 //! fixed, so CI is deterministic; the bounds are what make passing
 //! meaningful.
 //!
-//! Tolerance convention: `|estimate - truth| <= Z * standard_error`, with
-//! `Z = 3.29` (two-sided 99.9 %). For the KS test we require `p > ALPHA`.
+//! Tolerance convention (see `cfar_bench::stats::TestFamily` for the
+//! project policy): all statistical assertions in this file form one
+//! family with family-wise error rate `FAMILY_ALPHA`. Each assertion runs at
+//! the Bonferroni level `α = FAMILY_ALPHA / m`, i.e.
+//! `|estimate - truth| <= z(α) * standard_error`, and the KS test requires
+//! `p > α`. Negative controls are not part of the family.
 
 use cfar_bench::sim::ComplexAwgn;
-use cfar_bench::stats::{self, ks_one_sample};
+use cfar_bench::stats::{self, TestFamily, ks_one_sample};
 use cfar_bench::theory::exponential;
 use num_complex::Complex64;
 use rand::SeedableRng;
@@ -19,13 +23,27 @@ use rand::rngs::ChaCha8Rng;
 /// Samples per test. Relative standard error of the power estimate is
 /// `1/√N ≈ 0.1 %`.
 const N: usize = 1_000_000;
-/// Two-sided 99.9 % normal quantile.
-const Z: f64 = 3.29;
-/// Significance level for the KS test.
-const ALPHA: f64 = 1e-3;
 /// Power levels spanning several decades, to catch scaling bugs that happen
 /// to vanish at `P = 1`.
 const POWERS: [f64; 3] = [0.1, 1.0, 42.0];
+/// Highest raw moment checked.
+const MAX_MOMENT: u32 = 4;
+/// Statistical assertions per power level: mean power (1), I power, Q power
+/// and I/Q correlation (3), KS (1), raw moments (`MAX_MOMENT`).
+const ASSERTIONS_PER_POWER: usize = 1 + 3 + 1 + MAX_MOMENT as usize;
+/// Chance that a *correct* generator fails this file for a fresh seed.
+const FAMILY_ALPHA: f64 = 1e-3;
+
+/// The family is derived from the constants above, so adding a power level
+/// or a moment automatically tightens every per-test threshold.
+fn family() -> TestFamily {
+    TestFamily::bonferroni(FAMILY_ALPHA, POWERS.len() * ASSERTIONS_PER_POWER).expect("valid family")
+}
+
+/// Two-sided critical value for a single assertion (≈ 4.13 for m = 27).
+fn z() -> f64 {
+    family().per_test().two_sided_z()
+}
 
 fn draw(power: f64, seed: u64) -> Vec<Complex64> {
     let noise = ComplexAwgn::new(power).expect("valid power");
@@ -42,16 +60,17 @@ fn measured_power_matches_target() {
     for (seed, &p) in POWERS.iter().enumerate() {
         let y = squared_magnitudes(&draw(p, seed as u64));
 
+        let z = z();
         let p_hat = stats::mean(&y).unwrap();
         // Standard error estimated from the data itself (sample variance of
         // |x|²), not assumed from the model.
         let se = stats::standard_error_of_mean(&y).unwrap();
 
         assert!(
-            (p_hat - p).abs() <= Z * se,
-            "P = {p}: measured {p_hat}, |error| = {:.3e} > {Z}·SE = {:.3e}",
+            (p_hat - p).abs() <= z * se,
+            "P = {p}: measured {p_hat}, |error| = {:.3e} > {z:.2}·SE = {:.3e}",
             (p_hat - p).abs(),
-            Z * se
+            z * se
         );
     }
 }
@@ -59,6 +78,7 @@ fn measured_power_matches_target() {
 #[test]
 fn i_and_q_have_equal_power_and_are_uncorrelated() {
     for (seed, &p) in POWERS.iter().enumerate() {
+        let z = z();
         let x = draw(p, 100 + seed as u64);
         let i: Vec<f64> = x.iter().map(|c| c.re).collect();
         let q: Vec<f64> = x.iter().map(|c| c.im).collect();
@@ -69,7 +89,7 @@ fn i_and_q_have_equal_power_and_are_uncorrelated() {
             let est = stats::mean(&sq).unwrap();
             let se = stats::standard_error_of_mean(&sq).unwrap();
             assert!(
-                (est - p / 2.0).abs() <= Z * se,
+                (est - p / 2.0).abs() <= z * se,
                 "P = {p}: {name} power {est}, expected {}",
                 p / 2.0
             );
@@ -77,7 +97,7 @@ fn i_and_q_have_equal_power_and_are_uncorrelated() {
 
         // Under independence, √N · r is asymptotically N(0, 1).
         let r = stats::pearson_correlation(&i, &q).unwrap();
-        let bound = Z / (N as f64).sqrt();
+        let bound = z / (N as f64).sqrt();
         assert!(
             r.abs() <= bound,
             "P = {p}: corr(I, Q) = {r:.3e}, bound {bound:.3e}"
@@ -88,12 +108,13 @@ fn i_and_q_have_equal_power_and_are_uncorrelated() {
 #[test]
 fn squared_magnitude_passes_ks_test_for_exponential() {
     for (seed, &p) in POWERS.iter().enumerate() {
+        let alpha = family().per_test().alpha();
         let y = squared_magnitudes(&draw(p, 200 + seed as u64));
         // The reference CDF uses the *true* P, not an estimate from `y`;
         // estimating it would invalidate the KS p-value.
         let r = ks_one_sample(&y, |v| exponential::cdf(v, p)).unwrap();
         assert!(
-            r.p_value > ALPHA,
+            r.p_value > alpha,
             "P = {p}: KS D = {:.3e}, p = {:.3e}",
             r.statistic,
             r.p_value
@@ -104,16 +125,17 @@ fn squared_magnitude_passes_ks_test_for_exponential() {
 #[test]
 fn squared_magnitude_moments_match_exponential() {
     for (seed, &p) in POWERS.iter().enumerate() {
+        let z = z();
         let y = squared_magnitudes(&draw(p, 300 + seed as u64));
 
-        for k in 1..=4_u32 {
+        for k in 1..=MAX_MOMENT {
             let yk: Vec<f64> = y.iter().map(|v| v.powi(k as i32)).collect();
             let est = stats::mean(&yk).unwrap();
             let truth = exponential::raw_moment(k, p);
             // Exact standard error from theory: Var(y^k) / N.
             let se = (exponential::raw_moment_variance(k, p) / N as f64).sqrt();
             assert!(
-                (est - truth).abs() <= Z * se,
+                (est - truth).abs() <= z * se,
                 "P = {p}, k = {k}: E[y^k] = {est}, expected {truth}, {:.2} SE off",
                 (est - truth) / se
             );

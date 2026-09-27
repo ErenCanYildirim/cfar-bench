@@ -15,7 +15,7 @@
 //! | [`matched_filter`]  | Pulse compression                                  |
 //! | [`ambiguity`]       | Delay-Doppler ambiguity function                   |
 //! | [`cfar`]            | CA-CFAR and OS-CFAR detectors                      |
- 
+
 pub mod ambiguity;
 pub mod cfar;
 pub mod matched_filter;
